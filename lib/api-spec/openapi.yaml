@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: trading
+    description: Paper trading dashboard and controls
 paths:
   /healthz:
     get:
@@ -24,7 +26,161 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /trading/overview:
+    get:
+      operationId: getTradingOverview
+      tags: [trading]
+      summary: Get the trading dashboard overview
+      responses:
+        "200":
+          description: Trading overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TradingOverview"
+  /trading/analysis:
+    get:
+      operationId: getTradingAnalysis
+      tags: [trading]
+      summary: Get the latest multi-timeframe SMC analysis
+      responses:
+        "200":
+          description: Latest analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TradingAnalysis"
+  /trading/trades:
+    get:
+      operationId: listTradingTrades
+      tags: [trading]
+      summary: List recent paper trades
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, open, won, lost, rejected]
+            default: all
+      responses:
+        "200":
+          description: Trade journal
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Trade"
+  /trading/trades/{tradeId}:
+    get:
+      operationId: getTradingTrade
+      tags: [trading]
+      summary: Get a trade with its audit
+      parameters:
+        - $ref: "#/components/parameters/TradeId"
+      responses:
+        "200":
+          description: Trade detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trade"
+        "404":
+          description: Trade not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /trading/trades/{tradeId}/close:
+    post:
+      operationId: closeTradingTrade
+      tags: [trading]
+      summary: Close a paper trade and create an audit
+      parameters:
+        - $ref: "#/components/parameters/TradeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseTradeInput"
+      responses:
+        "200":
+          description: Closed trade
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trade"
+  /trading/trades/paper:
+    post:
+      operationId: createPaperTrade
+      tags: [trading]
+      summary: Create a paper trade from the current validated setup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaperTradeInput"
+      responses:
+        "201":
+          description: Paper trade created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Trade"
+  /trading/control:
+    get:
+      operationId: getBotControl
+      tags: [trading]
+      summary: Get bot runtime controls
+      responses:
+        "200":
+          description: Bot controls
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotControl"
+    patch:
+      operationId: updateBotControl
+      tags: [trading]
+      summary: Update bot runtime controls
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotControlUpdate"
+      responses:
+        "200":
+          description: Updated bot controls
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotControl"
+  /trading/alerts:
+    get:
+      operationId: listTradingAlerts
+      tags: [trading]
+      summary: List recent alert delivery events
+      responses:
+        "200":
+          description: Alert history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Alert"
 components:
+  parameters:
+    TradeId:
+      name: tradeId
+      in: path
+      required: true
+      schema:
+        type: integer
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +189,189 @@ components:
           type: string
       required:
         - status
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    TradingOverview:
+      type: object
+      required: [mode, symbol, session, equity, todayPnl, winRate, tradesToday, maxTradesPerDay, lastSync, telegramStatus, exchangeStatus]
+      properties:
+        mode:
+          type: string
+          enum: [paper, live_locked]
+        symbol:
+          type: string
+        session:
+          type: string
+          enum: [asian, london, new_york, outside]
+        equity:
+          type: number
+        todayPnl:
+          type: number
+        winRate:
+          type: number
+        tradesToday:
+          type: integer
+        maxTradesPerDay:
+          type: integer
+        lastSync:
+          type: string
+        telegramStatus:
+          type: string
+          enum: [not_configured, ready, error]
+        exchangeStatus:
+          type: string
+          enum: [not_configured, configured, error]
+    TradingAnalysis:
+      type: object
+      required: [symbol, timeframe, trend, bias, confidence, session, asianRange, structure, liquidity, setup, invalidation, checkedAt]
+      properties:
+        symbol:
+          type: string
+        timeframe:
+          type: string
+        trend:
+          type: string
+          enum: [bullish, bearish, ranging, unclear]
+        bias:
+          type: string
+          enum: [long, short, neutral]
+        confidence:
+          type: number
+        session:
+          type: string
+        asianRange:
+          type: object
+          required: [low, high, status]
+          properties:
+            low: { type: number }
+            high: { type: number }
+            status: { type: string }
+        structure:
+          type: array
+          items: { type: string }
+        liquidity:
+          type: array
+          items: { type: string }
+        setup:
+          type: object
+          required: [status, entry, stopLoss, target, riskReward]
+          properties:
+            status: { type: string }
+            entry: { type: number }
+            stopLoss: { type: number }
+            target: { type: number }
+            riskReward: { type: number }
+        invalidation:
+          type: array
+          items: { type: string }
+        checkedAt:
+          type: string
+    Trade:
+      type: object
+      required: [id, symbol, side, status, entry, stopLoss, target, riskReward, session, setup, confluences, openedAt, audit]
+      properties:
+        id: { type: integer }
+        symbol: { type: string }
+        side:
+          type: string
+          enum: [long, short]
+        status:
+          type: string
+          enum: [open, won, lost, rejected]
+        entry: { type: number }
+        exit: { type: ["number", "null"] }
+        stopLoss: { type: number }
+        target: { type: number }
+        pnl: { type: ["number", "null"] }
+        riskReward: { type: number }
+        session: { type: string }
+        setup: { type: string }
+        confluences:
+          type: array
+          items: { type: string }
+        openedAt: { type: string }
+        closedAt: { type: ["string", "null"] }
+        audit:
+          type: object
+          required: [grade, verdict, reasons, checklist]
+          properties:
+            grade: { type: string }
+            verdict: { type: string }
+            reasons:
+              type: array
+              items: { type: string }
+            checklist:
+              type: array
+              items:
+                type: object
+                required: [label, passed]
+                properties:
+                  label: { type: string }
+                  passed: { type: boolean }
+    PaperTradeInput:
+      type: object
+      required: [side, entry, stopLoss, target, session, setup]
+      properties:
+        symbol:
+          type: string
+          enum: [BTC/USDT, ETH/USDT]
+        side:
+          type: string
+          enum: [long, short]
+        entry: { type: number }
+        stopLoss: { type: number }
+        target: { type: number }
+        session: { type: string }
+        setup: { type: string }
+    CloseTradeInput:
+      type: object
+      required: [exit, verdict]
+      properties:
+        exit: { type: number }
+        verdict: { type: string }
+    BotControl:
+      type: object
+      required: [mode, running, liveOrdersEnabled, symbol, maxTradesPerDay, riskPerTrade, sessions, telegramStatus, exchangeStatus]
+      properties:
+        mode:
+          type: string
+          enum: [paper, live_locked]
+        running: { type: boolean }
+        liveOrdersEnabled: { type: boolean }
+        symbol: { type: string }
+        maxTradesPerDay: { type: integer }
+        riskPerTrade: { type: number }
+        sessions:
+          type: array
+          items: { type: string }
+        telegramStatus:
+          type: string
+          enum: [not_configured, ready, error]
+        exchangeStatus:
+          type: string
+          enum: [not_configured, configured, error]
+    BotControlUpdate:
+      type: object
+      properties:
+        running: { type: boolean }
+        maxTradesPerDay: { type: integer, minimum: 1, maximum: 5 }
+        riskPerTrade: { type: number, minimum: 0.1, maximum: 2 }
+    Alert:
+      type: object
+      required: [id, type, title, body, status, createdAt]
+      properties:
+        id: { type: integer }
+        type:
+          type: string
+          enum: [setup, trade_opened, trade_closed, audit, system]
+        title: { type: string }
+        body: { type: string }
+        status:
+          type: string
+          enum: [sent, pending, failed, not_configured]
+        createdAt: { type: string }
 

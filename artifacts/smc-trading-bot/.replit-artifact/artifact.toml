@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "SMC Paper Trading Bot"
+description = "A paper-only BTC/USDT and ETH/USDT trading control room with SMC setup validation, simulated positions, risk controls, a trade journal, and audit-ready P&L tracking."
+version = "1.0.0"
+id = "artifacts/smc-trading-bot"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19147
+
+[services.development]
+run = "pnpm --filter @workspace/smc-trading-bot run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/smc-trading-bot", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/smc-trading-bot/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19147"
+BASE_PATH = "/"

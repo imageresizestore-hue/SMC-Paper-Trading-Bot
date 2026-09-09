@@ -1,0 +1,1 @@
+- [Paper worker runtime](paper-worker-runtime.md) — public market data keeps paper trading startable without private exchange or Telegram credentials.
