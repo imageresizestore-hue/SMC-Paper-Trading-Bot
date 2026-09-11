@@ -8,8 +8,11 @@
 
 export type TradingAnalysisSetup = {
   status: string;
-  entry: number;
-  stopLoss: number;
-  target: number;
+  /** @nullable */
+  entry: number | null;
+  /** @nullable */
+  stopLoss: number | null;
+  /** @nullable */
+  target: number | null;
   riskReward: number;
 };

@@ -227,7 +227,7 @@ components:
           enum: [not_configured, configured, error]
     TradingAnalysis:
       type: object
-      required: [symbol, timeframe, trend, bias, confidence, session, asianRange, structure, liquidity, setup, invalidation, checkedAt]
+      required: [symbol, timeframe, trend, bias, confidence, session, asianRange, structure, liquidity, reasons, timeframes, chart, setup, invalidation, checkedAt]
       properties:
         symbol:
           type: string
@@ -256,20 +256,91 @@ components:
         liquidity:
           type: array
           items: { type: string }
+        reasons:
+          type: array
+          items: { type: string }
+        timeframes:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimeframeRead"
+        chart:
+          $ref: "#/components/schemas/AnalysisChart"
         setup:
           type: object
           required: [status, entry, stopLoss, target, riskReward]
           properties:
             status: { type: string }
-            entry: { type: number }
-            stopLoss: { type: number }
-            target: { type: number }
+            entry: { type: ["number", "null"] }
+            stopLoss: { type: ["number", "null"] }
+            target: { type: ["number", "null"] }
             riskReward: { type: number }
         invalidation:
           type: array
           items: { type: string }
         checkedAt:
           type: string
+    TimeframeRead:
+      type: object
+      required: [timeframe, trend, bias, bos, choch, swingHigh, swingLow, fvgLow, fvgHigh, lastClose, status, reason]
+      properties:
+        timeframe: { type: string }
+        trend:
+          type: string
+          enum: [bullish, bearish, ranging, unclear]
+        bias:
+          type: string
+          enum: [long, short, neutral]
+        bos: { type: boolean }
+        choch: { type: boolean }
+        swingHigh: { type: ["number", "null"] }
+        swingLow: { type: ["number", "null"] }
+        fvgLow: { type: ["number", "null"] }
+        fvgHigh: { type: ["number", "null"] }
+        lastClose: { type: ["number", "null"] }
+        status:
+          type: string
+          enum: [confirmed, sideways, unclear]
+        reason: { type: string }
+    AnalysisChart:
+      type: object
+      required: [series]
+      properties:
+        series:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnalysisSeries"
+    AnalysisSeries:
+      type: object
+      required: [timeframe, candles, levels]
+      properties:
+        timeframe: { type: string }
+        candles:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketCandle"
+        levels:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnalysisLevel"
+    MarketCandle:
+      type: object
+      required: [timestamp, open, high, low, close, volume]
+      properties:
+        timestamp: { type: string }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        close: { type: number }
+        volume: { type: number }
+    AnalysisLevel:
+      type: object
+      required: [label, value, tone]
+      properties:
+        label: { type: string }
+        value: { type: number }
+        tone:
+          type: string
+          enum: [structure, fvg, entry, risk, target]
     Trade:
       type: object
       required: [id, symbol, side, status, entry, stopLoss, target, riskReward, session, setup, confluences, openedAt, audit]

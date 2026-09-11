@@ -1,1 +1,2 @@
 - [Paper worker runtime](paper-worker-runtime.md) — public market data keeps paper trading startable without private exchange or Telegram credentials.
+- [Telegram chart rendering](chart-rendering-runtime.md) — generated multi-timeframe photo alerts require matplotlib, with text fallback kept independent.

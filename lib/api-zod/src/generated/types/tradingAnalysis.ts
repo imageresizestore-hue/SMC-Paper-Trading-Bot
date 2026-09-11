@@ -5,6 +5,8 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { AnalysisChart } from './analysisChart';
+import type { TimeframeRead } from './timeframeRead';
 import type { TradingAnalysisAsianRange } from './tradingAnalysisAsianRange';
 import type { TradingAnalysisBias } from './tradingAnalysisBias';
 import type { TradingAnalysisSetup } from './tradingAnalysisSetup';
@@ -20,6 +22,9 @@ export interface TradingAnalysis {
   asianRange: TradingAnalysisAsianRange;
   structure: string[];
   liquidity: string[];
+  reasons: string[];
+  timeframes: TimeframeRead[];
+  chart: AnalysisChart;
   setup: TradingAnalysisSetup;
   invalidation: string[];
   checkedAt: string;

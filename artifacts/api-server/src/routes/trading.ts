@@ -23,6 +23,7 @@ import {
   db,
   tradesTable,
 } from "@workspace/db";
+import { buildLiveMarketAnalysis } from "../services/market-analysis";
 
 const router: IRouter = Router();
 const telegramReady = () => Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID);
@@ -118,42 +119,6 @@ const seedTrades = [
   },
 ];
 
-const analysis = {
-  symbol: "BTC/USDT",
-  timeframe: "1H → 15m → 5m",
-  trend: "bullish" as const,
-  bias: "long" as const,
-  confidence: 78,
-  session: "London session active",
-  asianRange: {
-    low: 111740,
-    high: 112380,
-    status: "Low swept; price reclaimed range",
-  },
-  structure: [
-    "1H bullish market structure",
-    "15m bullish BOS after sell-side sweep",
-    "5m displacement left a clean FVG",
-  ],
-  liquidity: [
-    "Sell-side liquidity below Asian low taken",
-    "Buy-side liquidity rests above 113180",
-  ],
-  setup: {
-    status: "Validated paper setup",
-    entry: 112420,
-    stopLoss: 112020,
-    target: 113180,
-    riskReward: 1.9,
-  },
-  invalidation: [
-    "15m close back below 112020",
-    "No displacement on FVG retest",
-    "London close without entry confirmation",
-  ],
-  checkedAt: new Date().toISOString(),
-};
-
 async function ensureSeed(): Promise<void> {
   const [settings] = await db.select().from(botSettingsTable).limit(1);
   if (!settings) {
@@ -232,7 +197,14 @@ router.get("/trading/overview", async (_req, res): Promise<void> => {
 });
 
 router.get("/trading/analysis", async (_req, res): Promise<void> => {
-  res.json(GetTradingAnalysisResponse.parse(analysis));
+  try {
+    const liveAnalysis = await buildLiveMarketAnalysis();
+    res.json(GetTradingAnalysisResponse.parse(liveAnalysis));
+  } catch (error) {
+    res.status(503).json({
+      error: error instanceof Error ? error.message : "Live market analysis unavailable",
+    });
+  }
 });
 
 router.get("/trading/trades", async (req, res): Promise<void> => {

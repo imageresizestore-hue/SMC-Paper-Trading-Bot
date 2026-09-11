@@ -14,6 +14,7 @@ import {
   useGetTradingOverview,
   useHealthCheck,
   useListTradingAlerts,
+  type AnalysisSeries,
 } from '@workspace/api-client-react';
 
 const money = (value?: number | null) => typeof value === 'number' ? `${value < 0 ? '−' : ''}$${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
@@ -43,13 +44,18 @@ export default function Dashboard() {
   const botData = bot.data;
   const alertData = alerts.data ?? [];
   const healthUp = health.data?.status === 'ok' || health.data?.status === 'healthy';
-  const setupReady = analysisData?.setup?.status?.toLowerCase().includes('ready') || analysisData?.setup?.status?.toLowerCase().includes('valid');
+  const setupReady = Boolean(
+    analysisData?.setup?.status?.toLowerCase().includes('valid')
+      && analysisData.setup.entry !== null
+      && analysisData.setup.stopLoss !== null
+      && analysisData.setup.target !== null,
+  );
   const createLabel = createPaperTrade.isPending ? 'Recording setup…' : 'Simulate paper entry';
 
   const spark = useMemo(() => [28, 33, 31, 39, 36, 42, 48, 44, 52, 55, 61, 58, 66, 64, 70], []);
 
   const recordSetup = () => {
-    if (!analysisData?.setup) return;
+    if (!analysisData?.setup || analysisData.setup.entry === null || analysisData.setup.stopLoss === null || analysisData.setup.target === null) return;
     createPaperTrade.mutate({
       data: {
         symbol: analysisData.symbol === 'ETH/USDT' ? 'ETH/USDT' : 'BTC/USDT',
@@ -99,15 +105,12 @@ export default function Dashboard() {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,.85fr)]">
         <section className="enter-rise enter-rise-2">
           <SectionHeading eyebrow={`Market pulse / ${analysisData?.timeframe ?? 'live'}`} title="Market snapshot" action={<span className="font-mono-ui text-[10px] text-muted-foreground">{overviewData?.symbol ?? 'BTC/USDT'} · {titleCase(overviewData?.session)}</span>} />
-          <div className="relative overflow-hidden rounded-xl border border-border bg-card p-5 scanline">
+             <div className="relative overflow-hidden rounded-xl border border-border bg-card p-5 scanline">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div><p className="font-mono-ui text-[10px] uppercase tracking-[.17em] text-muted-foreground">{analysisData?.symbol ?? overviewData?.symbol ?? 'BTC/USDT'} / perpetual</p><div className="mt-2 flex items-baseline gap-3"><span className="font-mono-ui text-3xl font-medium tracking-[-.06em]">{price(analysisData?.setup?.entry)}</span><span className="flex items-center gap-1 font-mono-ui text-[11px] text-secondary"><TrendingUp size={13} /> monitored</span></div></div>
               <div className="rounded-lg border border-border bg-background/60 px-3 py-2"><p className="font-mono-ui text-[9px] uppercase tracking-[.15em] text-muted-foreground">Trend / bias</p><p className={`mt-1 text-[12px] font-extrabold ${analysisData?.trend === 'bearish' ? 'text-accent' : 'text-secondary'}`}>{titleCase(analysisData?.trend)} <span className="px-1 text-muted-foreground">/</span> {titleCase(analysisData?.bias)}</p></div>
             </div>
-            <div className="mt-6 flex h-[126px] items-end gap-1 border-b border-l border-border/70 px-2 pb-2 pt-4">
-              {spark.map((height, index) => <div key={index} className={`flex-1 rounded-t-[3px] transition-transform hover:-translate-y-1 ${index > 9 ? 'bg-accent/80' : 'bg-primary/75'}`} style={{ height: `${height + (index % 3) * 4}%` }} />)}
-              <div className="absolute bottom-[69px] left-5 right-5 border-t border-dashed border-accent/50"><span className="absolute -top-5 right-0 font-mono-ui text-[9px] text-accent">liquidity line</span></div>
-            </div>
+             <TimeframeChart series={analysisData?.chart?.series ?? []} />
             <div className="mt-4 grid grid-cols-3 gap-3">
               <Stat label="Asian range" value={`${price(analysisData?.asianRange?.low)} — ${price(analysisData?.asianRange?.high)}`} />
               <Stat label="Range state" value={titleCase(analysisData?.asianRange?.status)} />
@@ -154,6 +157,57 @@ export default function Dashboard() {
           {alerts.isLoading ? <div className="space-y-3 p-5"><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></div> : alertData.length === 0 ? <div className="flex items-center gap-3 p-6 text-[12px] text-muted-foreground"><Check size={16} className="text-secondary" /> No recent alert delivery events.</div> : <div className="divide-y divide-border">{alertData.slice(0, 4).map((alert) => <div key={alert.id} className="flex flex-col gap-2 px-5 py-3.5 sm:flex-row sm:items-center"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground"><Activity size={13} /></span><div className="min-w-0 flex-1"><p className="text-[12px] font-bold">{alert.title}</p><p className="truncate text-[11px] text-muted-foreground">{alert.body}</p></div><div className="flex items-center gap-3 font-mono-ui text-[9px] uppercase tracking-[.1em] text-muted-foreground"><span className="text-secondary">{titleCase(alert.status)}</span><span>{new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div></div>)}</div>}
         </div>
       </section>
+    </div>
+  );
+}
+
+function TimeframeChart({ series }: { series: AnalysisSeries[] }) {
+  return (
+    <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {series.map((item) => {
+        const candles = item.candles.slice(-42);
+        const low = Math.min(...candles.map((candle) => candle.low));
+        const high = Math.max(...candles.map((candle) => candle.high));
+        const span = Math.max(high - low, 0.000001);
+        const position = (value: number) => `${Math.max(2, Math.min(98, ((value - low) / span) * 100))}%`;
+        return (
+          <div key={item.timeframe} className="rounded-lg border border-border/80 bg-background/50 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="font-mono-ui text-[10px] font-bold uppercase tracking-[.14em]">{item.timeframe}</span>
+              <span className="font-mono-ui text-[9px] text-muted-foreground">{candles.length} candles</span>
+            </div>
+            <div className="relative h-28 overflow-hidden rounded border border-border/70 bg-card/60">
+              <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-border/70" />
+              {item.levels.map((level) => (
+                <div
+                  key={`${item.timeframe}-${level.label}-${level.value}`}
+                  className={`absolute inset-x-0 z-20 border-t border-dashed ${level.tone === 'risk' ? 'border-accent' : level.tone === 'target' ? 'border-secondary' : level.tone === 'entry' ? 'border-[#58c7d0]' : 'border-primary/55'}`}
+                  style={{ bottom: position(level.value) }}
+                  title={`${level.label}: ${price(level.value)}`}
+                />
+              ))}
+              <div className="absolute inset-0 flex items-end gap-px px-1 py-2">
+                {candles.map((candle, index) => {
+                  const bodyLow = ((Math.min(candle.open, candle.close) - low) / span) * 100;
+                  const bodyHeight = Math.max(3, (Math.abs(candle.close - candle.open) / span) * 100);
+                  const wickLow = ((candle.low - low) / span) * 100;
+                  const wickHeight = Math.max(4, ((candle.high - candle.low) / span) * 100);
+                  const bullish = candle.close >= candle.open;
+                  return (
+                    <div key={`${item.timeframe}-${candle.timestamp}-${index}`} className="relative h-full flex-1">
+                      <div className="absolute left-1/2 w-px -translate-x-1/2 bg-muted-foreground/60" style={{ bottom: `${wickLow}%`, height: `${wickHeight}%` }} />
+                      <div className={`absolute inset-x-0.5 rounded-[1px] ${bullish ? 'bg-secondary' : 'bg-accent'}`} style={{ bottom: `${bodyLow}%`, height: `${bodyHeight}%` }} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono-ui text-[8px] uppercase tracking-[.08em] text-muted-foreground">
+              {item.levels.slice(0, 3).map((level) => <span key={`${item.timeframe}-legend-${level.label}`}><span className="text-foreground">{level.label}</span> {price(level.value)}</span>)}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -17,7 +17,16 @@ from urllib import error, request
 
 from coindcx_client import CoinDCXClient
 from run_bot import TelegramNotifier
-from smc_engine import Setup, asian_range, find_fvg, liquidity_sweep, read_structure, validate_setup
+from smc_engine import (
+    TIMEFRAME_ORDER,
+    Setup,
+    MultiTimeframeAnalysis,
+    analyze_multi_timeframe,
+    asian_range,
+    find_fvg,
+    liquidity_sweep,
+    validate_multi_timeframe_setup,
+)
 
 
 # The paper worker talks to the shared local proxy by default, so it can reach
@@ -46,28 +55,25 @@ def setup_message(
     symbol: str,
     setup: Setup,
     trade: dict,
-    higher: list,
-    entry: list,
+    analysis: MultiTimeframeAnalysis,
 ) -> str:
-    range_ = asian_range(higher)
-    structure = read_structure(higher)
-    fvg = find_fvg(entry, setup.bias)
-    sell_sweep, buy_sweep = liquidity_sweep(entry, range_) if range_ else (False, False)
     return "\n".join(
         [
             "SMC PAPER TRADE OPENED",
             f"Symbol: {symbol}",
             f"Session: {setup.session.replace('_', ' ').title()}",
             f"Side: {setup.bias.value.upper()}",
-            f"HTF trend: {structure.trend.value} | BOS: {structure.bos} | CHoCH: {structure.choch}",
-            f"Asian range: {fmt_price(range_.low) if range_ else '—'} – {fmt_price(range_.high) if range_ else '—'}",
-            f"Liquidity sweep: sell-side={sell_sweep} buy-side={buy_sweep}",
-            f"FVG: {fmt_price(fvg.low) if fvg else '—'} – {fmt_price(fvg.high) if fvg else '—'}",
+            f"Multi-timeframe confidence: {analysis.confidence}%",
             f"Entry: {fmt_price(trade.get('entry'))}",
             f"Stop loss: {fmt_price(trade.get('stopLoss'))}",
             f"Target: {fmt_price(trade.get('target'))}",
             f"Risk/reward: {trade.get('riskReward', setup.risk_reward):.2f}",
-            "Reason: " + "; ".join(setup.reasons),
+            "Timeframe checks:",
+            *[
+                f"- {read.timeframe}: {read.trend.value} / {read.bias.value} / {read.status}"
+                for read in analysis.reads
+            ],
+            "Reason: " + "; ".join(setup.reasons[:5]),
             "Invalidation: " + "; ".join(setup.invalidation),
             "Paper only — no live order was placed.",
         ]
@@ -166,9 +172,11 @@ def open_validated_setup(
 ) -> bool:
     if trades_today >= max_trades_per_day:
         return False
-    higher = client.candles(pair=pair, interval="1h", limit=200)
-    entry = client.candles(pair=pair, interval="15m", limit=200)
-    setup = validate_setup(higher, entry)
+    candles_by_timeframe = {
+        timeframe: client.candles(pair=pair, interval=timeframe, limit=200)
+        for timeframe in TIMEFRAME_ORDER
+    }
+    setup, analysis = validate_multi_timeframe_setup(candles_by_timeframe)
     if not setup.valid or setup.entry is None or setup.stop_loss is None or setup.target is None:
         return False
 
@@ -186,16 +194,16 @@ def open_validated_setup(
         },
     )
     if isinstance(trade, dict):
-        report = setup_message(symbol, setup, trade, higher, entry)
+        report = setup_message(symbol, setup, trade, analysis)
         if notifier.ready:
             try:
-                from charting import render_setup_chart
+                from charting import render_multi_timeframe_chart
 
                 with tempfile.NamedTemporaryFile(prefix="smc-paper-", suffix=".png") as chart:
-                    render_setup_chart(
+                    render_multi_timeframe_chart(
                         symbol=symbol,
-                        higher=higher,
-                        entry=entry,
+                        candles_by_timeframe=candles_by_timeframe,
+                        reads=list(analysis.reads),
                         setup=setup,
                         output_path=chart.name,
                     )

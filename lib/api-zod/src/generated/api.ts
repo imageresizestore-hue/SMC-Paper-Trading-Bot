@@ -52,11 +52,44 @@ export const GetTradingAnalysisResponse = zod.object({
 }),
   "structure": zod.array(zod.string()),
   "liquidity": zod.array(zod.string()),
+  "reasons": zod.array(zod.string()),
+  "timeframes": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "trend": zod.enum(['bullish', 'bearish', 'ranging', 'unclear']),
+  "bias": zod.enum(['long', 'short', 'neutral']),
+  "bos": zod.boolean(),
+  "choch": zod.boolean(),
+  "swingHigh": zod.number().nullable(),
+  "swingLow": zod.number().nullable(),
+  "fvgLow": zod.number().nullable(),
+  "fvgHigh": zod.number().nullable(),
+  "lastClose": zod.number().nullable(),
+  "status": zod.enum(['confirmed', 'sideways', 'unclear']),
+  "reason": zod.string()
+})),
+  "chart": zod.object({
+  "series": zod.array(zod.object({
+  "timeframe": zod.string(),
+  "candles": zod.array(zod.object({
+  "timestamp": zod.string(),
+  "open": zod.number(),
+  "high": zod.number(),
+  "low": zod.number(),
+  "close": zod.number(),
+  "volume": zod.number()
+})),
+  "levels": zod.array(zod.object({
+  "label": zod.string(),
+  "value": zod.number(),
+  "tone": zod.enum(['structure', 'fvg', 'entry', 'risk', 'target'])
+}))
+}))
+}),
   "setup": zod.object({
   "status": zod.string(),
-  "entry": zod.number(),
-  "stopLoss": zod.number(),
-  "target": zod.number(),
+  "entry": zod.number().nullable(),
+  "stopLoss": zod.number().nullable(),
+  "target": zod.number().nullable(),
   "riskReward": zod.number()
 }),
   "invalidation": zod.array(zod.string()),

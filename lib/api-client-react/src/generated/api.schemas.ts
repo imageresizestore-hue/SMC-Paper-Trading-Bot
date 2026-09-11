@@ -90,11 +90,98 @@ export type TradingAnalysisAsianRange = {
 
 export type TradingAnalysisSetup = {
   status: string;
-  entry: number;
-  stopLoss: number;
-  target: number;
+  /** @nullable */
+  entry: number | null;
+  /** @nullable */
+  stopLoss: number | null;
+  /** @nullable */
+  target: number | null;
   riskReward: number;
 };
+
+export type TimeframeReadTrend = typeof TimeframeReadTrend[keyof typeof TimeframeReadTrend];
+
+
+export const TimeframeReadTrend = {
+  bullish: 'bullish',
+  bearish: 'bearish',
+  ranging: 'ranging',
+  unclear: 'unclear',
+} as const;
+
+export type TimeframeReadBias = typeof TimeframeReadBias[keyof typeof TimeframeReadBias];
+
+
+export const TimeframeReadBias = {
+  long: 'long',
+  short: 'short',
+  neutral: 'neutral',
+} as const;
+
+export type TimeframeReadStatus = typeof TimeframeReadStatus[keyof typeof TimeframeReadStatus];
+
+
+export const TimeframeReadStatus = {
+  confirmed: 'confirmed',
+  sideways: 'sideways',
+  unclear: 'unclear',
+} as const;
+
+export interface TimeframeRead {
+  timeframe: string;
+  trend: TimeframeReadTrend;
+  bias: TimeframeReadBias;
+  bos: boolean;
+  choch: boolean;
+  /** @nullable */
+  swingHigh: number | null;
+  /** @nullable */
+  swingLow: number | null;
+  /** @nullable */
+  fvgLow: number | null;
+  /** @nullable */
+  fvgHigh: number | null;
+  /** @nullable */
+  lastClose: number | null;
+  status: TimeframeReadStatus;
+  reason: string;
+}
+
+export interface MarketCandle {
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export type AnalysisLevelTone = typeof AnalysisLevelTone[keyof typeof AnalysisLevelTone];
+
+
+export const AnalysisLevelTone = {
+  structure: 'structure',
+  fvg: 'fvg',
+  entry: 'entry',
+  risk: 'risk',
+  target: 'target',
+} as const;
+
+export interface AnalysisLevel {
+  label: string;
+  value: number;
+  tone: AnalysisLevelTone;
+}
+
+export interface AnalysisSeries {
+  timeframe: string;
+  candles: MarketCandle[];
+  levels: AnalysisLevel[];
+}
+
+export interface AnalysisChart {
+  series: AnalysisSeries[];
+}
 
 export interface TradingAnalysis {
   symbol: string;
@@ -106,6 +193,9 @@ export interface TradingAnalysis {
   asianRange: TradingAnalysisAsianRange;
   structure: string[];
   liquidity: string[];
+  reasons: string[];
+  timeframes: TimeframeRead[];
+  chart: AnalysisChart;
   setup: TradingAnalysisSetup;
   invalidation: string[];
   checkedAt: string;

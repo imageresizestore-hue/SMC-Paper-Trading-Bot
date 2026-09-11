@@ -98,6 +98,61 @@ class TradeAudit:
         }
 
 
+TIMEFRAME_ORDER = ("1d", "1h", "30m", "15m", "5m", "1m")
+
+
+@dataclass(frozen=True)
+class TimeframeRead:
+    timeframe: str
+    trend: Trend
+    bias: Bias
+    bos: bool
+    choch: bool
+    swing_high: float | None
+    swing_low: float | None
+    fvg_low: float | None
+    fvg_high: float | None
+    last_close: float | None
+    status: str
+    reason: str
+
+    def as_dict(self) -> dict:
+        return {
+            "timeframe": self.timeframe,
+            "trend": self.trend.value,
+            "bias": self.bias.value,
+            "bos": self.bos,
+            "choch": self.choch,
+            "swingHigh": self.swing_high,
+            "swingLow": self.swing_low,
+            "fvgLow": self.fvg_low,
+            "fvgHigh": self.fvg_high,
+            "lastClose": self.last_close,
+            "status": self.status,
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True)
+class MultiTimeframeAnalysis:
+    trend: Trend
+    bias: Bias
+    confidence: int
+    reads: tuple[TimeframeRead, ...]
+    reasons: tuple[str, ...]
+    invalidation: tuple[str, ...]
+
+    def as_dict(self) -> dict:
+        return {
+            "trend": self.trend.value,
+            "bias": self.bias.value,
+            "confidence": self.confidence,
+            "timeframes": [read.as_dict() for read in self.reads],
+            "reasons": list(self.reasons),
+            "invalidation": list(self.invalidation),
+        }
+
+
 def current_session(now: datetime | None = None) -> str:
     """Return the IST session used by the bot's hard session gate."""
 
@@ -158,6 +213,174 @@ def read_structure(candles: Sequence[Candle]) -> Structure:
     if bearish:
         return Structure(Trend.BEARISH, Bias.SHORT, True, False, "Lower highs and lower lows")
     return Structure(Trend.RANGING, Bias.NEUTRAL, False, True, "Swing sequence is mixed; wait for displacement")
+
+
+def analyze_timeframe(timeframe: str, candles: Sequence[Candle]) -> TimeframeRead:
+    """Read confirmed structure and nearby liquidity/FVG levels for one timeframe."""
+
+    structure = read_structure(candles)
+    highs, lows = _recent_swings(candles)
+    fvg = find_fvg(candles, structure.bias) if structure.bias != Bias.NEUTRAL else None
+    if structure.trend in {Trend.BULLISH, Trend.BEARISH}:
+        status = "confirmed"
+    elif structure.trend == Trend.RANGING:
+        status = "sideways"
+    else:
+        status = "unclear"
+    return TimeframeRead(
+        timeframe=timeframe,
+        trend=structure.trend,
+        bias=structure.bias,
+        bos=structure.bos,
+        choch=structure.choch,
+        swing_high=highs[-1] if highs else None,
+        swing_low=lows[-1] if lows else None,
+        fvg_low=fvg.low if fvg else None,
+        fvg_high=fvg.high if fvg else None,
+        last_close=candles[-1].close if candles else None,
+        status=status,
+        reason=structure.reason,
+    )
+
+
+def analyze_multi_timeframe(
+    candles_by_timeframe: dict[str, Sequence[Candle]],
+) -> MultiTimeframeAnalysis:
+    """Require directional agreement from 1D through 1M before allowing a bias.
+
+    A lower-timeframe break is deliberately ignored when a higher timeframe is
+    ranging, unclear, or pointing the other way. This makes the paper worker
+    less eager around fake breakouts and isolated liquidity grabs.
+    """
+
+    reads = tuple(
+        analyze_timeframe(timeframe, candles_by_timeframe.get(timeframe, ()))
+        for timeframe in TIMEFRAME_ORDER
+    )
+    directional = [
+        read
+        for read in reads
+        if read.bias != Bias.NEUTRAL and read.trend in {Trend.BULLISH, Trend.BEARISH}
+    ]
+    aligned_bias = directional[0].bias if directional else Bias.NEUTRAL
+    fully_aligned = (
+        len(directional) == len(reads)
+        and all(read.bias == aligned_bias for read in reads)
+    )
+    daily = reads[0]
+    if fully_aligned:
+        trend = Trend.BULLISH if aligned_bias == Bias.LONG else Trend.BEARISH
+        confidence = 92
+        reasons = [
+            f"{read.timeframe} confirms {read.trend.value} structure"
+            for read in reads
+        ]
+        reasons.append("All six timeframes agree; lower-timeframe break is not isolated")
+    else:
+        trend = daily.trend if daily.trend != Trend.UNCLEAR else Trend.RANGING
+        aligned_count = sum(read.bias == aligned_bias for read in reads) if aligned_bias != Bias.NEUTRAL else 0
+        confidence = min(68, 25 + aligned_count * 8)
+        reasons = [
+            f"{read.timeframe}: {read.status} — {read.reason}"
+            for read in reads
+        ]
+    invalidation = (
+        "Reject if 1D or 1H structure changes against the bias",
+        "Reject if 30m/15m closes fail to confirm the displacement",
+        "Reject isolated 5m/1m breaks without higher-timeframe alignment",
+        "Reject entries while any required timeframe is sideways or unclear",
+    )
+    return MultiTimeframeAnalysis(
+        trend=trend,
+        bias=aligned_bias if fully_aligned else Bias.NEUTRAL,
+        confidence=confidence,
+        reads=reads,
+        reasons=tuple(reasons),
+        invalidation=invalidation,
+    )
+
+
+def validate_multi_timeframe_setup(
+    candles_by_timeframe: dict[str, Sequence[Candle]],
+    now: datetime | None = None,
+) -> tuple[Setup, MultiTimeframeAnalysis]:
+    """Validate a setup only after all six timeframes agree."""
+
+    analysis = analyze_multi_timeframe(candles_by_timeframe)
+    session = current_session(now)
+    if session not in {"asian", "london", "new_york"}:
+        return (
+            Setup(
+                False,
+                Bias.NEUTRAL,
+                None,
+                None,
+                None,
+                None,
+                session,
+                ("Outside the configured Asian/London/New York sessions",),
+                ("Session filter failed",),
+            ),
+            analysis,
+        )
+    if analysis.bias == Bias.NEUTRAL:
+        return (
+            Setup(
+                False,
+                Bias.NEUTRAL,
+                None,
+                None,
+                None,
+                None,
+                session,
+                analysis.reasons,
+                analysis.invalidation,
+            ),
+            analysis,
+        )
+
+    range_candles = candles_by_timeframe.get("15m", ())
+    entry_candles = candles_by_timeframe.get("5m", ())
+    range_ = asian_range(range_candles)
+    if range_ is None:
+        return (
+            Setup(False, analysis.bias, None, None, None, None, session, ("Asian range is not available",), ("Wait for the Asian range",)),
+            analysis,
+        )
+    sell_side, buy_side = liquidity_sweep(entry_candles, range_)
+    expected_sweep = sell_side if analysis.bias == Bias.LONG else buy_side
+    if not expected_sweep:
+        return (
+            Setup(False, analysis.bias, None, None, None, None, session, ("Required 5m liquidity sweep is not confirmed",), ("No sweep; do not anticipate the entry",)),
+            analysis,
+        )
+    fvg = find_fvg(entry_candles, analysis.bias)
+    if fvg is None:
+        return (
+            Setup(False, analysis.bias, None, None, None, None, session, ("No directional 5m FVG after sweep",), ("Wait for displacement and FVG",)),
+            analysis,
+        )
+    risk = abs(fvg.midpoint - (range_.low if analysis.bias == Bias.LONG else range_.high))
+    if risk <= 0:
+        return (
+            Setup(False, analysis.bias, None, None, None, None, session, ("Invalid risk distance",), ("Do not trade a zero-risk setup",)),
+            analysis,
+        )
+    target = fvg.midpoint + 2 * risk if analysis.bias == Bias.LONG else fvg.midpoint - 2 * risk
+    return (
+        Setup(
+            True,
+            analysis.bias,
+            fvg.midpoint,
+            range_.low if analysis.bias == Bias.LONG else range_.high,
+            target,
+            2.0,
+            session,
+            tuple(["All six timeframes aligned", "5m liquidity sweep confirmed", "5m displacement FVG identified", *analysis.reasons]),
+            analysis.invalidation,
+        ),
+        analysis,
+    )
 
 
 def liquidity_sweep(candles: Sequence[Candle], range_: AsianRange) -> tuple[bool, bool]:
